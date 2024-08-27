@@ -13,7 +13,7 @@
 
 <br/>
 
-**`scarab`** stands for **<u>S</u>POTLIGHT's <u>C</u>ollection of <u>A</u>nalytic machine<u>R</u>y for <u>A</u>rbitrary <u>B</u>ursts**. This is a collection of common functionality used to process and analyse pulsar and FRB data obtained from [**SPOTLIGHT**][spotlight].
+**`scarab`** stands for **<u>S</u>POTLIGHT's <u>C</u>ollection of <u>A</u>nalytic machine<u>R</u>y for <u>A</u>rbitrary <u>B</u>ursts**. This is a collection of common functionality will be used to process and analyse pulsar and FRB data obtained via the [**SPOTLIGHT**][spotlight] project.
 
 [spotlight]: https://nsmgmrt.ncra.tifr.res.in
 
