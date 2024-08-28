@@ -2,7 +2,6 @@ import numpy as np
 from scipy.special import erfc
 from scipy.signal import oaconvolve
 
-# TODO: Add the running power law (RPL) model for spectra.
 # TODO: Add routines for estimating scatter-corrected DM here.
 
 
@@ -169,3 +168,15 @@ def scatgauss_dfb_instrumental(
     B = boxcar(x, taud)
     A = scatconvolving(x, fluence, center, sigma, tau, 0.0)
     return dc + oaconvolve(A, B, mode="same") / np.sum(B)
+
+
+def runpowlaw(
+    x: np.ndarray,
+    fluence: float,
+    gamma: float,
+    beta: float,
+    xref: float,
+    dc: float,
+) -> np.ndarray:
+    logx = np.log(x / xref)
+    return fluence * np.exp(gamma * logx + beta * logx**2) + dc

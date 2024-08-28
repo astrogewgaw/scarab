@@ -12,6 +12,7 @@ from scarab.base import emitmask, zoommask
 from scarab.fit.models import (
     gauss,
     normgauss,
+    runpowlaw,
     scatanalytic,
     scatconvolving,
     scatbandintmodel,
@@ -19,7 +20,6 @@ from scarab.fit.models import (
     scatgauss_dfb_instrumental,
 )
 
-# TODO: Add MCMC-based fitting, via lmfit.
 # TODO: Absorb fitburst (https://github.com/CHIMEFRB/fitburst).
 # This will allow us to fit the entire dynamic spectrum in one
 # go, instead of fitting the profile and spectrum separately.
@@ -101,7 +101,10 @@ class Fitter:
             data=masked.profile,
         )
 
-        specfx = {"gaussian": gauss}.get(specmn, None)
+        specfx = {
+            "gaussian": gauss,
+            "running_power_law": runpowlaw,
+        }.get(specmn, None)
         if specfx is None:
             raise NotImplementedError(f"Model {specmn} is not implemented.")
 
@@ -111,10 +114,15 @@ class Fitter:
         specptp = specmax - specmin
 
         specmodel = Model(specfx)
-        specmodel.set_param_hint("sigma", value=1.0)
-        specmodel.set_param_hint("dc", value=specmin)
         specmodel.set_param_hint("fluence", value=specptp)
-        specmodel.set_param_hint("center", value=masked.freqs[binmax])
+        specmodel.set_param_hint("dc", value=specmin)
+        if specmn == "gaussian":
+            specmodel.set_param_hint("sigma", value=1.0)
+            specmodel.set_param_hint("center", value=masked.freqs[binmax])
+        elif specmn == "running_power_law":
+            specmodel.set_param_hint("beta", value=0.0)
+            specmodel.set_param_hint("gamma", value=0.0)
+            specmodel.set_param_hint("xref", value=masked.fh, vary=False)
 
         specparams = specmodel.make_params()
 
@@ -141,6 +149,7 @@ class Fitter:
         pxt.plot(self.masked.times, self.profres.best_fit)
         pxr.plot(self.burst.freqs, self.burst.spectrum, orientation="horizontal")
         pxr.plot(self.masked.freqs, self.masked.spectrum, orientation="horizontal")
+        pxr.plot(self.masked.freqs, self.specres.best_fit, orientation="horizontal")
 
         ax.fill_betweenx(
             self.masked.freqs,
