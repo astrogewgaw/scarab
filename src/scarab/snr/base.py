@@ -1,4 +1,5 @@
 import numpy as np
+
 from scarab.snr.cpad import cpadpow2
 from scarab.snr.noise import noisemean, noisestddev
 from scarab.snr.templates import Template, TemplateBank

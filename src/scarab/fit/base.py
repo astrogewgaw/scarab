@@ -1,21 +1,21 @@
 import inspect
+from typing import Self
+from dataclasses import dataclass
+
 import numpy as np
 import proplot as pplt
 from lmfit import Model
-from typing import Self
+from lmfit.model import ModelResult
+
 from scarab.base import Burst
 from scarab.dm import dm2delay
-from dataclasses import dataclass
-from lmfit.model import ModelResult
-from scarab.base import emitmask, zoommask
-
 from scarab.fit.models import (
     gauss,
     normgauss,
     runpowlaw,
     scatanalytic,
-    scatconvolving,
     scatbandintmodel,
+    scatconvolving,
     scatgauss_afb_instrumental,
     scatgauss_dfb_instrumental,
 )
@@ -40,8 +40,8 @@ class Fitter:
         zoommaskwithin: float = 100e-3,
         emitmaskthreshold: float = 10.0,
     ) -> Self:
-        zoomed = zoommask(burst, within=zoommaskwithin)
-        masked = emitmask(zoomed, threshold=emitmaskthreshold)
+        zoomed = burst.zoommask(within=zoommaskwithin)
+        masked = zoomed.emitmask(threshold=emitmaskthreshold)
 
         profmn, specmn = withmodels
 

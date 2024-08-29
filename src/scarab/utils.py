@@ -9,15 +9,11 @@ def w10gauss(sigma: float) -> float:
     return 2.0 * np.sqrt(2.0 * np.log(10.0)) * sigma
 
 
-def sqrsumnorm(data: np.ndarray) -> np.ndarray:
-    return data * ((data**2).sum()) ** -0.5
-
-
-def madnorm(data: np.ndarray):
-    mu = data.mean(axis=1)
-    sigma = data.std(axis=1)
-    sigma[sigma == 0] = 1.0
-    x = (data - mu.reshape(-1, 1)) / sigma.reshape(-1, 1)
+def normalise(data: np.ndarray):
+    mean = data.mean(axis=1)
+    stddev = data.std(axis=1)
+    stddev[stddev == 0] = 1.0
+    x = (data - mean.reshape(-1, 1)) / stddev.reshape(-1, 1)
     return x
 
 

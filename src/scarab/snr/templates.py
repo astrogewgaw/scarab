@@ -1,7 +1,6 @@
 import numpy as np
 from typing import Self, Iterable
 from dataclasses import dataclass
-from scarab.utils import sqrsumnorm
 from collections.abc import MutableSequence
 
 
@@ -17,30 +16,35 @@ class Template:
     def size(self):
         return self.data.size
 
+    def normalise(self) -> None:
+        self.data = self.data * ((self.data**2).sum()) ** -0.5
+
     @classmethod
     def boxcar(cls, wbin: int) -> Self:
-        data = np.ones(wbin)
-        return cls(
+        template = cls(
             ref=0,
             wbin=wbin,
             refto="start",
             kind="boxcar",
-            data=sqrsumnorm(data),
+            data=np.ones(wbin),
         )
+        template.normalise()
+        return template
 
     @classmethod
     def gaussian(cls, wbin: int) -> Self:
         sigma = wbin / (2 * np.sqrt(2 * np.log(2)))
         xmax = int(np.ceil(3.5 * sigma))
         x = np.arange(-xmax, xmax + 1)
-        data = np.exp(-(x**2) / (2 * sigma**2))
-        return cls(
+        template = cls(
             wbin=wbin,
             refto="peak",
             ref=len(x) // 2,
             kind="gaussian",
-            data=sqrsumnorm(data),
+            data=np.exp(-(x**2) / (2 * sigma**2)),
         )
+        template.normalise()
+        return template
 
     def prepare(self, nbins: int) -> np.ndarray:
         if not nbins > self.size:
