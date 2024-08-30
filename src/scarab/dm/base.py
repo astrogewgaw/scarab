@@ -32,4 +32,4 @@ def dedisp2d(data: np.ndarray, freqs: np.ndarray, dt: float, dm: float) -> np.nd
 
 
 def dedisp1d(data: np.ndarray, freqs: np.ndarray, dt: float, dm: float) -> np.ndarray:
-    return np.sum(roll2d(data, -dm2shifts(freqs, dt, dm)), axis=1)
+    return np.sum(roll2d(data, dm2shifts(freqs, dt, dm)), axis=0)
