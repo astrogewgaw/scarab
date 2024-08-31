@@ -9,7 +9,7 @@ def w10gauss(sigma: float) -> float:
     return 2.0 * np.sqrt(2.0 * np.log(10.0)) * sigma
 
 
-def normalise(data: np.ndarray):
+def normalise(data: np.ndarray) -> np.ndarray:
     mean = data.mean(axis=1)
     stddev = data.std(axis=1)
     stddev[stddev == 0] = 1.0
@@ -17,7 +17,7 @@ def normalise(data: np.ndarray):
     return x
 
 
-def scrunch(data: np.ndarray, tf: int = 1, ff: int = 1):
+def scrunch(data: np.ndarray, tf: int = 1, ff: int = 1) -> np.ndarray:
     nf, nt = data.shape
     nvalid = tf * (nt // tf)
     offset = (nt - nvalid) // 2
