@@ -1,4 +1,5 @@
 import inspect
+from typing import Self
 from dataclasses import dataclass
 
 import numpy as np
@@ -8,7 +9,6 @@ from lmfit.model import ModelResult
 
 from scarab.base import Burst
 from scarab.dm import dm2delay
-from scarab.transform import clipper, masker
 
 from scarab.fit.models import (
     gauss,
@@ -28,11 +28,12 @@ from scarab.fit.models import (
 
 @dataclass
 class ProfileFitter:
-    burst: Burst
-    fitted: bool = False
-    result: ModelResult | None = None
 
-    def fit(self, withmodel: str):
+    burst: Burst
+    result: ModelResult
+
+    @classmethod
+    def fit(cls, burst: Burst, withmodel: str) -> Self:
         modelfunc = {
             "unscattered": normgauss,
             "scattering_isotropic_analytic": scatanalytic,
@@ -45,9 +46,9 @@ class ProfileFitter:
         if modelfunc is None:
             raise NotImplementedError(f"Model {withmodel} is not implemented.")
 
-        maxima = np.max(self.burst.profile)
-        minima = np.min(self.burst.profile)
-        ixmax = np.argmax(self.burst.profile)
+        maxima = np.max(burst.normprofile)
+        minima = np.min(burst.normprofile)
+        ixmax = np.argmax(burst.normprofile)
 
         model = Model(modelfunc)
         args = list(inspect.signature(modelfunc).parameters.keys())
@@ -55,153 +56,171 @@ class ProfileFitter:
         model.set_param_hint("tau", value=1.0)
         model.set_param_hint("sigma", value=1.0)
         model.set_param_hint("dc", value=minima)
+        model.set_param_hint("center", value=burst.times[ixmax])
         model.set_param_hint("fluence", value=maxima - minima)
-        model.set_param_hint("center", value=self.burst.times[ixmax])
 
         if "taui" in args:
-            model.set_param_hint("taui", value=self.burst.dt, vary=False)
+            model.set_param_hint("taui", value=burst.dt, vary=False)
 
         if "taud" in args:
             model.set_param_hint(
                 "taud",
                 value=dm2delay(
-                    self.burst.fc - 0.5 * self.burst.df,
-                    self.burst.fc + 0.5 * self.burst.df,
-                    self.burst.dm,
+                    burst.fc - 0.5 * burst.df,
+                    burst.fc + 0.5 * burst.df,
+                    burst.dm,
                 ),
                 vary=False,
             )
 
         if withmodel == "scattering_isotropic_bandintegrated":
-            model.set_param_hint("flow", value=self.burst.fl)
-            model.set_param_hint("fhigh", value=self.burst.fh)
             model.set_param_hint("nf", value=9, vary=False)
+            model.set_param_hint("flow", value=burst.fl)
+            model.set_param_hint("fhigh", value=burst.fh)
 
         params = model.make_params()
-        params.add("w50i", expr="2.3548200*sigma")
-        params.add("w10i", expr="4.2919320*sigma")
 
-        self.result = model.fit(
+        def post_fit(fitresult):
+            fitresult.params.add("wint", expr="2.3548200*sigma")
+            fitresult.params.add("wscatt", expr="2.3548200*tau")
+            fitresult.params.add("weff", expr="(wint**2 + wscatt**2) ** 0.5")
+
+        model.post_fit = post_fit
+
+        result = model.fit(
             params=params,
+            x=burst.times,
             method="leastsq",
-            x=self.burst.times,
-            data=self.burst.profile,
+            data=burst.normprofile,
         )
+
+        return cls(burst=burst, result=result)
 
 
 @dataclass
 class SpectrumFitter:
-    burst: Burst
-    fitted: bool = False
-    result: ModelResult | None = None
 
-    def fit(self, withmodel: str) -> None:
-        specfx = {
+    burst: Burst
+    result: ModelResult
+
+    @classmethod
+    def fit(cls, burst: Burst, withmodel: str) -> Self:
+        modelfunc = {
             "gaussian": gauss,
             "running_power_law": runpowlaw,
         }.get(withmodel, None)
-        if specfx is None:
+        if modelfunc is None:
             raise NotImplementedError(f"Model {withmodel} is not implemented.")
 
-        maxima = np.max(self.burst.spectrum)
-        minima = np.min(self.burst.spectrum)
-        ixmax = np.argmax(self.burst.spectrum)
+        maxima = np.max(burst.normspectrum)
+        minima = np.min(burst.normspectrum)
+        ixmax = np.argmax(burst.normspectrum)
 
-        model = Model(specfx)
+        model = Model(modelfunc)
         model.set_param_hint("dc", value=minima)
         model.set_param_hint("fluence", value=maxima - minima)
+
         if withmodel == "gaussian":
             model.set_param_hint("sigma", value=1.0)
-            model.set_param_hint("center", value=self.burst.freqs[ixmax])
+            model.set_param_hint("center", value=burst.freqs[ixmax])
         elif withmodel == "running_power_law":
             model.set_param_hint("beta", value=0.0)
             model.set_param_hint("gamma", value=0.0)
-            model.set_param_hint("xref", value=self.burst.fh, vary=False)
+            model.set_param_hint("xref", value=burst.fh, vary=False)
 
         params = model.make_params()
 
-        self.result = model.fit(
+        result = model.fit(
             params=params,
+            x=burst.freqs,
             method="leastsq",
-            x=self.burst.freqs,
-            data=self.burst.spectrum,
+            data=burst.normspectrum,
         )
 
+        return cls(burst=burst, result=result)
 
+
+@dataclass
 class Fitter:
 
-    def __init__(self, burst: Burst) -> None:
-        self.burst = burst
-        self.R = {"profile": None, "spectrum": None}
+    burst: Burst
 
-    @property
-    def results(self):
-        return self.R
+    specmodel: str
+    profmodel: str
+    profresult: ModelResult
+    specresult: ModelResult
+    proffitter: ProfileFitter
+    specfitter: SpectrumFitter
+    result: dict[str, ModelResult]
 
-    def result(self, which: str):
-        return self.R[which]
-
+    @classmethod
     def fit(
-        self,
-        withmodels: tuple[str, str],
-        bcwidth: int = 10,
-        within: float = 100e-3,
-        threshold: float = 10.0,
-    ):
-        self.C = clipper(self.burst, within=within)
-        self.M = masker(self.C, bcwidth=bcwidth, threshold=threshold)
+        cls,
+        burst,
+        withmodels: tuple[str, str] = ("unscattered", "gaussian"),
+    ) -> Self:
+        profmodel, specmodel = withmodels
+        proffitter = ProfileFitter.fit(burst, profmodel)
+        specfitter = SpectrumFitter.fit(burst, specmodel)
 
-        self.PM, self.SM = withmodels
-        self.PF = ProfileFitter(self.M)
-        self.SF = SpectrumFitter(self.M)
+        if (proffitter.result is not None) and (specfitter.result is not None):
+            profresult = proffitter.result
+            specresult = specfitter.result
+            result = {"profile": profresult, "spectrum": specresult}
+        else:
+            raise RuntimeError(
+                {
+                    (True, True): "Fit failed!",
+                    (True, False): "Profile fit failed!",
+                    (False, True): "Spectrum fit failed",
+                }[(proffitter.result is None, specfitter.result is None)]
+            )
 
-        self.PF.fit(self.PM)
-        self.SF.fit(self.SM)
-        self.PR = self.PF.result
-        self.SR = self.SF.result
-        self.R = {"profile": self.PR, "spectrum": self.SR}
+        return cls(
+            burst=burst,
+            result=result,
+            profmodel=profmodel,
+            specmodel=specmodel,
+            proffitter=proffitter,
+            specfitter=specfitter,
+            profresult=profresult,
+            specresult=specresult,
+        )
 
     def plot(self):
         fig = pplt.figure(width=5, height=5)
+        ax = fig.subplots(nrows=1, ncols=1)[0]
+        paneltop = ax.panel_axes("top", width="5em", space=0)
+        panelside = ax.panel_axes("right", width="5em", space=0)
 
-        ax = fig.subplot()  # type: ignore
-        pxt = ax.panel_axes("top", width="5em", space=0)
-        pxr = ax.panel_axes("right", width="5em", space=0)
+        paneltop.set_yticks([])
+        panelside.set_xticks([])
 
-        pxt.set_yticks([])
-        pxr.set_xticks([])
+        paneltop.plot(self.burst.times, self.burst.normprofile)
+        paneltop.plot(self.burst.times, self.profresult.best_fit)
 
-        pxt.plot(self.M.times, self.M.profile)
-        pxr.plot(self.C.freqs, self.C.spectrum, orientation="horizontal")
-        pxr.plot(self.M.freqs, self.M.spectrum, orientation="horizontal")
-
-        if (self.PR is not None) and (self.SR is not None):
-            pxt.plot(self.M.times, self.PR.best_fit)
-            pxr.plot(self.M.freqs, self.SR.best_fit, orientation="horizontal")
-
-        ax.fill_betweenx(
-            self.M.freqs,
-            self.M.times[0],
-            self.M.times[-1],
-            alpha=0.20,
-            color="grey",
+        panelside.plot(
+            self.burst.freqs,
+            self.burst.normspectrum,
+            orientation="horizontal",
         )
 
-        ax.axhline(self.M.freqs[0], color="black", lw=1.5, ls="--")
-        ax.axhline(self.M.freqs[-1], color="black", lw=1.5, ls="--")
-        pxr.axhline(self.M.freqs[0], color="black", lw=1.5, ls="--")
-        pxr.axhline(self.M.freqs[-1], color="black", lw=1.5, ls="--")
+        panelside.plot(
+            self.burst.freqs,
+            self.specresult.best_fit,
+            orientation="horizontal",
+        )
 
         ax.imshow(
-            self.C.data,
+            self.burst.data,
             aspect="auto",
             cmap="batlow",
             interpolation="none",
             extent=[
-                self.C.times[0],
-                self.C.times[-1],
-                self.C.freqs[-1],
-                self.C.freqs[0],
+                self.burst.times[0],
+                self.burst.times[-1],
+                self.burst.freqs[-1],
+                self.burst.freqs[0],
             ],
         )
 

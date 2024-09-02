@@ -95,16 +95,36 @@ class Burst:
     def spectrum(self):
         return self.data.sum(axis=1)
 
+    @property
+    def normprofile(self):
+        normprofile = self.profile
+        normprofile -= np.median(normprofile)
+        normprofile /= normprofile.std()
+        return normprofile
+
+    @property
+    def normspectrum(self):
+        normspectrum = self.spectrum
+        normspectrum = normspectrum - np.median(normspectrum)
+        normspectrum = normspectrum / normspectrum.std()
+        return normspectrum
+
     def plot(self):
         fig = pplt.figure(width=5, height=5)
-        ax = fig.subplot()  # type: ignore
+        ax = fig.subplots(nrows=1, ncols=1)[0]
         paneltop = ax.panel_axes("top", width="5em", space=0)
         panelside = ax.panel_axes("right", width="5em", space=0)
 
-        paneltop.axis("off")
-        panelside.axis("off")
+        paneltop.set_yticks([])
+        panelside.set_xticks([])
+
         paneltop.plot(self.times, self.profile)
-        panelside.plot(self.spectrum, self.freqs)
+
+        panelside.plot(
+            self.freqs,
+            self.spectrum,
+            orientation="horizontal",
+        )
 
         ax.imshow(
             self.data,
