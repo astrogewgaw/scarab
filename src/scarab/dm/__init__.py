@@ -7,8 +7,11 @@ from scarab.dm.base import (
     dedisperse,
 )
 
+from scarab.dm.fdmt import fdmt
+
 __all__ = [
     "kdm",
+    "fdmt",
     "roll2d",
     "dm2delay",
     "dm2delays",
