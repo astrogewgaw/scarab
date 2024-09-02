@@ -8,6 +8,10 @@ import numpy as np
 kdm: float = 1.0 / 2.41e-4
 
 
+def delayperdm(f: float, fref: float) -> float:
+    return kdm * (f**-2 - fref**-2)
+
+
 def dm2delay(f: float, fref: float, dm: float) -> float:
     return kdm * dm * (f**-2 - fref**-2)
 
@@ -27,9 +31,12 @@ def roll2d(data: np.ndarray, shifts: np.ndarray) -> np.ndarray:
     return rolled
 
 
-def dedisp2d(data: np.ndarray, freqs: np.ndarray, dt: float, dm: float) -> np.ndarray:
-    return roll2d(data, dm2shifts(freqs, dt, dm))
-
-
-def dedisp1d(data: np.ndarray, freqs: np.ndarray, dt: float, dm: float) -> np.ndarray:
-    return np.sum(dedisp2d(data, freqs, dt, dm), axis=0)
+def dedisperse(
+    data: np.ndarray,
+    freqs: np.ndarray,
+    dt: float,
+    dm: float,
+    collapse: bool = False,
+) -> np.ndarray:
+    dedispersed = roll2d(data, dm2shifts(freqs, dt, dm))
+    return np.sum(dedispersed, axis=0) if collapse else dedispersed
