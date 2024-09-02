@@ -8,6 +8,7 @@ from scarab.dm.base import (
 )
 
 from scarab.dm.fdmt import fdmt
+from scarab.dm.optim import DMOptimizer
 
 __all__ = [
     "kdm",
@@ -17,4 +18,5 @@ __all__ = [
     "dm2delays",
     "dm2shifts",
     "dedisperse",
+    "DMOptimizer",
 ]
