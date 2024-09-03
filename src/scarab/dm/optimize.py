@@ -2,6 +2,7 @@ from typing import Self
 from dataclasses import dataclass
 
 import numpy as np
+import proplot as pplt
 from scipy.linalg import norm
 from scipy.fftpack import dct, idct
 
@@ -214,3 +215,21 @@ class DMOptimizer:
         self.structparam = maxSP
         self.ddmoptmin = ddmoptmin
         self.ddmoptmax = ddmoptmax
+
+    def plotdmt(self):
+        fig = pplt.figure(width=5)
+        ax = fig.subplots(nrows=1, ncols=1)[0]
+        ax.imshow(
+            self.dmt,
+            aspect="auto",
+            cmap="batlow",
+            origin="lower",
+            interpolation="none",
+            extent=[
+                0.0,
+                self.burst.tobs,
+                self.burst.dm - 5,
+                self.burst.dm + 5,
+            ],
+        )
+        pplt.show()

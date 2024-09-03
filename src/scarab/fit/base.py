@@ -11,9 +11,9 @@ from scarab.base import Burst
 from scarab.dm import dm2delay
 
 from scarab.fit.models import (
+    rpl,
     gauss,
     normgauss,
-    runpowlaw,
     scatanalytic,
     scatbandintmodel,
     scatconvolving,
@@ -107,7 +107,7 @@ class SpectrumFitter:
     def fit(cls, burst: Burst, withmodel: str) -> Self:
         modelfunc = {
             "gaussian": gauss,
-            "running_power_law": runpowlaw,
+            "running_power_law": rpl,
         }.get(withmodel, None)
         if modelfunc is None:
             raise NotImplementedError(f"Model {withmodel} is not implemented.")

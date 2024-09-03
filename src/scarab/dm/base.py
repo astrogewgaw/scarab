@@ -1,10 +1,5 @@
 import numpy as np
 
-# TODO: Maybe add FDMT routines from jess (https://github.com/josephwkania/jess),
-# or take dmt (https://github.com/pravirkr/dmt) as a dependency. Not sure how it
-# would be useful in scarab's context, but could be nice to plot and show the DMT
-# maybe?
-
 kdm: float = 1.0 / 2.41e-4
 
 

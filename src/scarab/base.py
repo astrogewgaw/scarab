@@ -98,8 +98,8 @@ class Burst:
     @property
     def normprofile(self):
         normprofile = self.profile
-        normprofile -= np.median(normprofile)
-        normprofile /= normprofile.std()
+        normprofile = normprofile - np.median(normprofile)
+        normprofile = normprofile / normprofile.std()
         return normprofile
 
     @property
@@ -109,34 +109,47 @@ class Burst:
         normspectrum = normspectrum / normspectrum.std()
         return normspectrum
 
-    def plot(self):
-        fig = pplt.figure(width=5, height=5)
-        ax = fig.subplots(nrows=1, ncols=1)[0]
-        paneltop = ax.panel_axes("top", width="5em", space=0)
-        panelside = ax.panel_axes("right", width="5em", space=0)
+    def plot(
+        self,
+        dpi: int = 96,
+        show: bool = True,
+        save: bool = False,
+        ax: pplt.Axes | None = None,
+        saveto: str | Path = "burst.png",
+    ):
+        def _(ax: pplt.Axes) -> None:
+            paneltop = ax.panel_axes("top", width="5em", space=0)
+            panelside = ax.panel_axes("right", width="5em", space=0)
 
-        paneltop.set_yticks([])
-        panelside.set_xticks([])
+            paneltop.set_yticks([])
+            panelside.set_xticks([])
 
-        paneltop.plot(self.times, self.profile)
+            paneltop.plot(self.times, self.normprofile)
+            panelside.plot(self.freqs, self.normspectrum, orientation="horizontal")
 
-        panelside.plot(
-            self.freqs,
-            self.spectrum,
-            orientation="horizontal",
-        )
+            ax.imshow(
+                self.data,
+                cmap="batlow",
+                aspect="auto",
+                interpolation="none",
+                extent=[
+                    self.times[0],
+                    self.times[-1],
+                    self.freqs[-1],
+                    self.freqs[0],
+                ],
+            )
 
-        ax.imshow(
-            self.data,
-            cmap="batlow",
-            aspect="auto",
-            interpolation="none",
-            extent=[
-                self.times[0],
-                self.times[-1],
-                self.freqs[-1],
-                self.freqs[0],
-            ],
-        )
+            ax.format(xlabel="Time (ms)", ylabel="Frequency (MHz)")
 
-        pplt.show()
+        if ax is None:
+            fig = pplt.figure(width=5, height=5)
+            ax = fig.subplots(nrows=1, ncols=1)[0]
+            assert ax is not None
+            _(ax)
+            if save:
+                fig.savefig(saveto, dpi=dpi)
+            if show:
+                pplt.show()
+        else:
+            _(ax)

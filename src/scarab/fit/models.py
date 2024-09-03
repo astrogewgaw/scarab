@@ -2,22 +2,6 @@ import numpy as np
 from scipy.special import erfc
 from scipy.signal import oaconvolve
 
-# TODO: Add routines for estimating scatter-corrected DM here.
-
-
-def eqwidth(x: np.ndarray, y: np.ndarray):
-    dt = np.abs(x[0] - x[1])
-    return (np.sum(y[y >= 0]) * dt) / np.max(y)
-
-
-def fullwidth(x: np.ndarray, y: np.ndarray, level: float) -> float:
-    mask = y >= level * np.max(y)
-    if len(x[mask] > 1):
-        width = np.abs(np.max(x[mask]) - np.min(x[mask]))
-    else:
-        width = np.abs(x[0] - x[1])
-    return width
-
 
 def linear(
     x: np.ndarray,
@@ -50,9 +34,9 @@ def normgauss(
     center: float,
     sigma: float,
 ) -> np.ndarray:
-    return (fluence / sigma / np.sqrt(2 * np.pi)) * np.exp(
-        -0.5 * np.power((x - center) / sigma, 2)
-    )
+    S = fluence / sigma / np.sqrt(2 * np.pi)
+    y = S * np.exp(-0.5 * np.power((x - center) / sigma, 2))
+    return y
 
 
 def pbfisotropic(x: np.ndarray, tau: float):
@@ -170,7 +154,7 @@ def scatgauss_dfb_instrumental(
     return dc + oaconvolve(A, B, mode="same") / np.sum(B)
 
 
-def runpowlaw(
+def rpl(
     x: np.ndarray,
     fluence: float,
     gamma: float,

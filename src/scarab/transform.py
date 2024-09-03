@@ -1,7 +1,9 @@
 from typing import Self
-from dataclasses import asdict
+from pathlib import Path
+from dataclasses import asdict, dataclass
 
 import numpy as np
+import proplot as pplt
 
 from scarab.base import Burst
 from scarab.dm import dm2shifts, roll2d
@@ -9,61 +11,65 @@ from scarab.snr import Template, snratio
 from scarab.utilities import normalise, scrunch
 
 
-class Transform:
+@dataclass
+class Transformer:
 
-    def __init__(
-        self,
-        burst: Burst,
-        inplace: bool = False,
-    ) -> None:
-        self.burst = burst
-        self.inplace = inplace
-        self.transformed = burst
-        self.istransformed = False
+    burst: Burst
+    transformed: Burst
+    inplace: bool = False
+    istransformed: bool = False
+
+    @classmethod
+    def new(cls, burst: Burst, inplace: bool = False):
+        return cls(burst=burst, transformed=burst, inplace=inplace)
 
     def normalise(self) -> Self:
-        normalised = normalise(self.burst.data)
-        if self.inplace:
-            self.burst.data = normalised
-            self.transformed = self.burst
-        else:
-            attrs = asdict(self.burst)
+        data = self.transformed.data
+        normalised = normalise(data if self.inplace else data.copy())
+        if not self.inplace:
+            attrs = asdict(self.transformed)
             attrs["data"] = normalised
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return type(self)(burst=self.transformed, inplace=self.inplace)
+        return self
 
     def dedisperse(self, dm: float) -> Self:
-        shifts = dm2shifts(self.burst.freqs, self.burst.dt, dm)
-        prevshifts = dm2shifts(self.burst.freqs, self.burst.dt, self.burst.dm)
-        dedispersed = roll2d(self.burst.data, shifts - prevshifts)
+        data = self.transformed.data
+        data = data if self.inplace else data.copy()
+        shifts = dm2shifts(self.transformed.freqs, self.transformed.dt, dm)
+        prevshifts = dm2shifts(
+            self.transformed.freqs, self.transformed.dt, self.transformed.dm
+        )
+        dedispersed = roll2d(data, shifts - prevshifts)
         if self.inplace:
-            self.burst.dm = dm
-            self.burst.data = dedispersed
-            self.transformed = self.burst
+            self.transformed.dm = dm
+            self.transformed.data = dedispersed
+            self.transformed = self.transformed
         else:
-            attrs = asdict(self.burst)
+            attrs = asdict(self.transformed)
             attrs["dm"] = dm
             attrs["data"] = dedispersed
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return type(self)(burst=self.transformed, inplace=self.inplace)
+        return self
 
     def scrunch(self, tf: int = 1, ff: int = 1) -> Self:
-        scrunched = scrunch(self.burst.data, tf, ff)
+        data = self.transformed.data
+        data = data if self.inplace else data.copy()
+        scrunched = scrunch(data, tf, ff)
         nf, nt = scrunched.shape
-        dt = self.burst.tobs / nt
-        df = self.burst.bw / nf
+        dt = self.transformed.tobs / nt
+        df = self.transformed.bw / nf
 
         if self.inplace:
-            self.burst.nf = nf
-            self.burst.nt = nt
-            self.burst.df = df
-            self.burst.dt = dt
-            self.burst.data = scrunched
-            self.transformed = self.burst
+            self.transformed.nf = nf
+            self.transformed.nt = nt
+            self.transformed.df = df
+            self.transformed.dt = dt
+            self.transformed.data = scrunched
+            self.transformed = self.transformed
         else:
-            attrs = asdict(self.burst)
+            attrs = asdict(self.transformed)
             attrs["nf"] = nf
             attrs["nt"] = nt
             attrs["df"] = df
@@ -71,36 +77,41 @@ class Transform:
             attrs["data"] = scrunched
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return type(self)(burst=self.transformed, inplace=self.inplace)
+        return self
 
     def clip(self, within: float = 50e-3) -> Self:
-        n0 = int(self.burst.nt // 2)
-        dn = int(within / self.burst.dt)
+        n0 = int(self.transformed.nt // 2)
+        dn = int(within / self.transformed.dt)
+        data = self.transformed.data
+        data = data if self.inplace else data.copy()
 
-        clipped = self.burst.data[:, n0 - dn : n0 + dn]
+        clipped = data[:, n0 - dn : n0 + dn]
         profile = clipped.sum(axis=0)
         m = np.argmax(profile)
         n0 = n0 - dn + m
 
-        clipped = self.burst.data[:, n0 - dn : n0 + dn]
+        clipped = self.transformed.data[:, n0 - dn : n0 + dn]
         _, nt = clipped.shape
 
         if self.inplace:
-            self.burst.nt = nt
+            self.transformed.nt = nt
             self.data = clipped
-            self.burst.tobs = self.burst.nt * self.burst.dt
-            self.transformed = self.burst
+            self.transformed.tobs = self.transformed.nt * self.transformed.dt
+            self.transformed = self.transformed
         else:
-            attrs = asdict(self.burst)
+            attrs = asdict(self.transformed)
             attrs["nt"] = nt
             attrs["data"] = clipped
-            attrs["tobs"] = nt * self.burst.dt
+            attrs["tobs"] = nt * self.transformed.dt
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return type(self)(burst=self.transformed, inplace=self.inplace)
+        return self
 
     def mask(self, boxwidth: int = 10, snrthres: float = 10.0) -> Self:
-        mask = self.burst.spectrum > 0.0
+        data = self.transformed.data
+        freqs = self.transformed.freqs
+        mask = self.transformed.spectrum > 0.0
+        data = data if self.inplace else data.copy()
 
         runs = np.flatnonzero(
             np.diff(
@@ -129,7 +140,7 @@ class Transform:
 
         subsnrs = []
         for i, subband in enumerate(subbands):
-            subdata = self.burst.data[slice(*subband), :]
+            subdata = data[slice(*subband), :]
             profile = subdata.sum(axis=0)
             profile = profile - np.median(profile)
             profile = profile / profile.std()
@@ -144,24 +155,24 @@ class Transform:
         else:
             mask[slice(band[0][0], band[-1][-1])] = True
 
-        masked = self.burst.data[mask, :]
-        freqs = self.burst.freqs[mask]
+        masked = data[mask, :]
+        freqs = self.transformed.freqs[mask]
         fh = freqs[0]
         fl = freqs[-1]
         nf = freqs.size
-        bw = nf * self.burst.df
+        bw = nf * self.transformed.df
         fc = 0.5 * (fh + fl)
 
         if self.inplace:
-            self.burst.nf = nf
-            self.burst.fh = fh
-            self.burst.fc = fc
-            self.burst.fl = fl
-            self.burst.bw = bw
-            self.burst.data = masked
-            self.transformed = self.burst
+            self.transformed.nf = nf
+            self.transformed.fh = fh
+            self.transformed.fc = fc
+            self.transformed.fl = fl
+            self.transformed.bw = bw
+            self.transformed.data = masked
+            self.transformed = self.transformed
         else:
-            attrs = asdict(self.burst)
+            attrs = asdict(self.transformed)
             attrs["nf"] = nf
             attrs["fh"] = fh
             attrs["fc"] = fc
@@ -170,4 +181,24 @@ class Transform:
             attrs["data"] = masked
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return type(self)(burst=self.transformed, inplace=self.inplace)
+        return self
+
+    def plot(
+        self,
+        dpi: int = 96,
+        show: bool = True,
+        save: bool = False,
+        saveto: str | Path = "transformed.png",
+    ):
+        fig = pplt.figure()
+        if self.inplace:
+            ax = fig.subplots(nrows=1, ncols=1)[0]
+            self.transformed.plot(ax=ax)
+        else:
+            axs = fig.subplots(nrows=1, ncols=2)
+            self.transformed.plot(ax=axs[0])
+            self.transformed.plot(ax=axs[1])
+        if save:
+            fig.savefig(saveto, dpi=dpi)
+        if show:
+            pplt.show()
