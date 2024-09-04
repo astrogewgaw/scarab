@@ -15,8 +15,8 @@ from scarab.fit.models import (
     gauss,
     normgauss,
     scatanalytic,
-    scatbandintmodel,
     scatconvolving,
+    scatbandintmodel,
     scatgauss_afb_instrumental,
     scatgauss_dfb_instrumental,
 )
@@ -80,13 +80,6 @@ class ProfileFitter:
 
         params = model.make_params()
 
-        def post_fit(fitresult):
-            fitresult.params.add("wint", expr="2.3548200*sigma")
-            fitresult.params.add("wscatt", expr="2.3548200*tau")
-            fitresult.params.add("weff", expr="(wint**2 + wscatt**2) ** 0.5")
-
-        model.post_fit = post_fit
-
         result = model.fit(
             params=params,
             x=burst.times,
@@ -145,13 +138,13 @@ class Fitter:
 
     burst: Burst
 
-    specmodel: str
-    profmodel: str
-    profresult: ModelResult
-    specresult: ModelResult
-    proffitter: ProfileFitter
-    specfitter: SpectrumFitter
-    result: dict[str, ModelResult]
+    SM: str
+    PM: str
+    PR: ModelResult
+    SR: ModelResult
+    PF: ProfileFitter
+    SF: SpectrumFitter
+    results: dict[str, ModelResult]
 
     @classmethod
     def fit(
@@ -159,57 +152,48 @@ class Fitter:
         burst,
         withmodels: tuple[str, str] = ("unscattered", "gaussian"),
     ) -> Self:
-        profmodel, specmodel = withmodels
-        proffitter = ProfileFitter.fit(burst, profmodel)
-        specfitter = SpectrumFitter.fit(burst, specmodel)
+        PM, SM = withmodels
+        PF = ProfileFitter.fit(burst, PM)
+        SF = SpectrumFitter.fit(burst, SM)
 
-        if (proffitter.result is not None) and (specfitter.result is not None):
-            profresult = proffitter.result
-            specresult = specfitter.result
-            result = {"profile": profresult, "spectrum": specresult}
+        if (PF.result is not None) and (SF.result is not None):
+            PR = PF.result
+            SR = SF.result
+            results = {"profile": PR, "spectrum": SR}
         else:
             raise RuntimeError(
                 {
                     (True, True): "Fit failed!",
                     (True, False): "Profile fit failed!",
                     (False, True): "Spectrum fit failed",
-                }[(proffitter.result is None, specfitter.result is None)]
+                }[(PF.result is None, SF.result is None)]
             )
 
         return cls(
+            PM=PM,
+            SM=SM,
+            PF=PF,
+            SF=SF,
+            PR=PR,
+            SR=SR,
             burst=burst,
-            result=result,
-            profmodel=profmodel,
-            specmodel=specmodel,
-            proffitter=proffitter,
-            specfitter=specfitter,
-            profresult=profresult,
-            specresult=specresult,
+            results=results,
         )
 
     def plot(self):
         fig = pplt.figure(width=5, height=5)
         ax = fig.subplots(nrows=1, ncols=1)[0]
-        paneltop = ax.panel_axes("top", width="5em", space=0)
-        panelside = ax.panel_axes("right", width="5em", space=0)
+        pxtop = ax.panel_axes("top", width="5em", space=0)
+        pxside = ax.panel_axes("right", width="5em", space=0)
 
-        paneltop.set_yticks([])
-        panelside.set_xticks([])
+        pxtop.set_yticks([])
+        pxside.set_xticks([])
 
-        paneltop.plot(self.burst.times, self.burst.normprofile)
-        paneltop.plot(self.burst.times, self.profresult.best_fit)
+        pxtop.plot(self.burst.times, self.burst.normprofile)
+        pxtop.plot(self.burst.times, self.PR.best_fit)
 
-        panelside.plot(
-            self.burst.freqs,
-            self.burst.normspectrum,
-            orientation="horizontal",
-        )
-
-        panelside.plot(
-            self.burst.freqs,
-            self.specresult.best_fit,
-            orientation="horizontal",
-        )
+        pxside.plot(self.burst.freqs, self.burst.normspectrum, orientation="horizontal")
+        pxside.plot(self.burst.freqs, self.SR.best_fit, orientation="horizontal")
 
         ax.imshow(
             self.burst.data,
