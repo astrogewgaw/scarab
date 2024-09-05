@@ -1,11 +1,14 @@
 import inspect
 from typing import Self
-from dataclasses import dataclass
+from dataclasses import field, dataclass
 
 import numpy as np
 import proplot as pplt
 from lmfit import Model
+from rich.progress import track
 from lmfit.model import ModelResult
+from scipy.signal import find_peaks
+from scipy.ndimage import median_filter
 
 from scarab.base import Burst
 from scarab.dm import dm2delay
@@ -21,19 +24,35 @@ from scarab.fit.models import (
     scatgauss_dfb_instrumental,
 )
 
+
 # TODO: Absorb fitburst (https://github.com/CHIMEFRB/fitburst).
 # This will allow us to fit the entire dynamic spectrum in one
 # go, instead of fitting the profile and spectrum separately.
+
+
+def peakfind(data: np.ndarray, winsize: int = 10, perthres: float = 0.05) -> list:
+    smooth = median_filter(data, winsize)
+    peaks, _ = find_peaks(smooth, distance=2 * winsize)
+    peaks = peaks[smooth[peaks] >= perthres * smooth.max()]
+    peaks = list(reversed([peak for _, peak in sorted(zip(smooth[peaks], peaks))]))
+    return peaks
 
 
 @dataclass
 class ProfileFitter:
 
     burst: Burst
+    multiple: bool
     result: ModelResult
+    tries: list[ModelResult] = field(default_factory=list)
 
     @classmethod
-    def fit(cls, burst: Burst, withmodel: str) -> Self:
+    def fit(
+        cls,
+        burst: Burst,
+        withmodel: str,
+        multiple: bool = False,
+    ) -> Self:
         modelfunc = {
             "unscattered": normgauss,
             "scattering_isotropic_analytic": scatanalytic,
@@ -46,48 +65,88 @@ class ProfileFitter:
         if modelfunc is None:
             raise NotImplementedError(f"Model {withmodel} is not implemented.")
 
-        maxima = np.max(burst.normprofile)
-        minima = np.min(burst.normprofile)
         ixmax = np.argmax(burst.normprofile)
+        tmax = burst.times[-1]
+        tmin = burst.times[0]
 
-        model = Model(modelfunc)
-        args = list(inspect.signature(modelfunc).parameters.keys())
+        if multiple:
+            peaks = peakfind(
+                perthres=0.05,
+                data=burst.normprofile,
+                winsize=int(250e-6 / burst.dt),
+            )
+        else:
+            peaks = [ixmax]
 
-        model.set_param_hint("tau", value=1.0)
-        model.set_param_hint("sigma", value=1.0)
-        model.set_param_hint("dc", value=minima)
-        model.set_param_hint("center", value=burst.times[ixmax])
-        model.set_param_hint("fluence", value=maxima - minima)
+        components = []
+        for i in range(len(peaks)):
+            component = Model(modelfunc, prefix=f"P{i + 1}")
+            components.append(component)
+        models = np.cumsum(components)
 
-        if "taui" in args:
-            model.set_param_hint("taui", value=burst.dt, vary=False)
+        tries = []
+        for M in track(models, description="Trying models..."):
+            nc = len(M.components)
+            for i, peak in enumerate(peaks[:nc]):
+                tpeak = burst.times[peak]
+                cmax = burst.normprofile[peak]
+                cmin = np.min(burst.normprofile)
+                coff = np.median(burst.normprofile[:100])
 
-        if "taud" in args:
-            model.set_param_hint(
-                "taud",
-                value=dm2delay(
-                    burst.fc - 0.5 * burst.df,
-                    burst.fc + 0.5 * burst.df,
-                    burst.dm,
-                ),
-                vary=False,
+                M.set_param_hint(f"P{i + 1}dc", value=coff, min=cmin)
+                M.set_param_hint(f"P{i + 1}center", min=tmin, max=tmax, value=tpeak)
+                M.set_param_hint(f"P{i + 1}tau", value=1.0, min=burst.dt, max=np.inf)
+                M.set_param_hint(f"P{i + 1}sigma", value=1.0, min=burst.dt, max=np.inf)
+
+                M.set_param_hint(
+                    f"P{i + 1}fluence",
+                    min=0.0,
+                    max=np.inf,
+                    value=cmax - coff,
+                )
+
+                args = list(inspect.signature(modelfunc).parameters.keys())
+
+                if "taui" in args:
+                    M.set_param_hint(f"P{i + 1}taui", value=burst.dt, vary=False)
+
+                if "taud" in args:
+                    M.set_param_hint(
+                        f"P{i + 1}taud",
+                        value=dm2delay(
+                            burst.fc - 0.5 * burst.df,
+                            burst.fc + 0.5 * burst.df,
+                            burst.dm,
+                        ),
+                        vary=False,
+                    )
+
+            if withmodel == "scattering_isotropic_bandintegrated":
+                M.set_param_hint("flow", value=burst.fl)
+                M.set_param_hint("fhigh", value=burst.fh)
+                M.set_param_hint("nf", value=9, vary=False)
+
+            params = M.make_params()
+            for i in range(1, len(peaks[:nc])):
+                params[f"P{i + 1}dc"].expr = "P1dc"
+
+            tries.append(
+                M.fit(
+                    params=params,
+                    x=burst.times,
+                    method="leastsq",
+                    data=burst.normprofile,
+                )
             )
 
-        if withmodel == "scattering_isotropic_bandintegrated":
-            model.set_param_hint("nf", value=9, vary=False)
-            model.set_param_hint("flow", value=burst.fl)
-            model.set_param_hint("fhigh", value=burst.fh)
+        result = tries[np.asarray([_.bic for _ in tries]).argmin()]
 
-        params = model.make_params()
-
-        result = model.fit(
-            params=params,
-            x=burst.times,
-            method="leastsq",
-            data=burst.normprofile,
+        return cls(
+            burst=burst,
+            tries=tries,
+            result=result,
+            multiple=multiple,
         )
-
-        return cls(burst=burst, result=result)
 
 
 @dataclass
@@ -137,6 +196,7 @@ class SpectrumFitter:
 class Fitter:
 
     burst: Burst
+    multiple: bool
 
     SM: str
     PM: str
@@ -150,11 +210,12 @@ class Fitter:
     def fit(
         cls,
         burst,
+        multiple: bool = False,
         withmodels: tuple[str, str] = ("unscattered", "gaussian"),
     ) -> Self:
         PM, SM = withmodels
-        PF = ProfileFitter.fit(burst, PM)
         SF = SpectrumFitter.fit(burst, SM)
+        PF = ProfileFitter.fit(burst, PM, multiple=multiple)
 
         if (PF.result is not None) and (SF.result is not None):
             PR = PF.result
@@ -178,22 +239,34 @@ class Fitter:
             SR=SR,
             burst=burst,
             results=results,
+            multiple=multiple,
         )
 
     def plot(self):
         fig = pplt.figure(width=5, height=5)
         ax = fig.subplots(nrows=1, ncols=1)[0]
         pxtop = ax.panel_axes("top", width="5em", space=0)
+        pxtoptop = ax.panel_axes("top", width="5em", space=0)
         pxside = ax.panel_axes("right", width="5em", space=0)
 
         pxtop.set_yticks([])
         pxside.set_xticks([])
+        pxtoptop.set_yticks([])
 
-        pxtop.plot(self.burst.times, self.burst.normprofile)
-        pxtop.plot(self.burst.times, self.PR.best_fit)
+        pxtoptop.plot(self.burst.times, self.burst.normprofile, lw=1, alpha=0.5)
+        pxtoptop.plot(self.burst.times, self.PR.best_fit, lw=2)
+        for name, component in self.PR.eval_components().items():
+            pxtop.plot(self.burst.times, component, lw=2, label=name)
 
-        pxside.plot(self.burst.freqs, self.burst.normspectrum, orientation="horizontal")
-        pxside.plot(self.burst.freqs, self.SR.best_fit, orientation="horizontal")
+        pxside.plot(
+            self.burst.freqs,
+            self.burst.normspectrum,
+            orientation="horizontal",
+            lw=1,
+            alpha=0.5,
+        )
+
+        pxside.plot(self.burst.freqs, self.SR.best_fit, orientation="horizontal", lw=2)
 
         ax.imshow(
             self.burst.data,
@@ -211,7 +284,7 @@ class Fitter:
         ax.format(
             xlabel="Time (s)",
             ylabel="Frequency (MHz)",
-            suptitle=f"{self.burst.path.name}",
+            suptitle=f"Fit for {self.burst.path.name}",
         )
 
         pplt.show()
