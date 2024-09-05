@@ -25,21 +25,29 @@ class Transformer:
 
     def normalise(self) -> Self:
         data = self.transformed.data
-        normalised = normalise(data if self.inplace else data.copy())
-        if not self.inplace:
+        data = data if self.inplace else data.copy()
+        normalised = normalise(data)
+        if self.inplace:
+            self.transformed.data = normalised
+            self.transformed = self.transformed
+        else:
             attrs = asdict(self.transformed)
             attrs["data"] = normalised
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return self
+        return type(self).new(burst=self.transformed, inplace=self.inplace)
 
     def dedisperse(self, dm: float) -> Self:
         data = self.transformed.data
         data = data if self.inplace else data.copy()
         shifts = dm2shifts(self.transformed.freqs, self.transformed.dt, dm)
+
         prevshifts = dm2shifts(
-            self.transformed.freqs, self.transformed.dt, self.transformed.dm
+            dm=self.transformed.dm,
+            dt=self.transformed.dt,
+            freqs=self.transformed.freqs,
         )
+
         dedispersed = roll2d(data, shifts - prevshifts)
         if self.inplace:
             self.transformed.dm = dm
@@ -51,15 +59,15 @@ class Transformer:
             attrs["data"] = dedispersed
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return self
+        return type(self).new(burst=self.transformed, inplace=self.inplace)
 
     def scrunch(self, tf: int = 1, ff: int = 1) -> Self:
         data = self.transformed.data
         data = data if self.inplace else data.copy()
         scrunched = scrunch(data, tf, ff)
         nf, nt = scrunched.shape
-        dt = self.transformed.tobs / nt
         df = self.transformed.bw / nf
+        dt = self.transformed.tobs / nt
 
         if self.inplace:
             self.transformed.nf = nf
@@ -77,7 +85,7 @@ class Transformer:
             attrs["data"] = scrunched
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return self
+        return type(self).new(burst=self.transformed, inplace=self.inplace)
 
     def clip(self, within: float = 50e-3) -> Self:
         n0 = int(self.transformed.nt // 2)
@@ -95,7 +103,7 @@ class Transformer:
 
         if self.inplace:
             self.transformed.nt = nt
-            self.data = clipped
+            self.transformed.data = clipped
             self.transformed.tobs = self.transformed.nt * self.transformed.dt
             self.transformed = self.transformed
         else:
@@ -105,7 +113,7 @@ class Transformer:
             attrs["tobs"] = nt * self.transformed.dt
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return self
+        return type(self).new(burst=self.transformed, inplace=self.inplace)
 
     def mask(self, boxwidth: int = 10, snrthres: float = 10.0) -> Self:
         data = self.transformed.data
@@ -181,7 +189,7 @@ class Transformer:
             attrs["data"] = masked
             self.transformed = Burst(**attrs)
         self.istransformed = True
-        return self
+        return type(self).new(burst=self.transformed, inplace=self.inplace)
 
     def plot(
         self,
@@ -190,13 +198,13 @@ class Transformer:
         save: bool = False,
         saveto: str | Path = "transformed.png",
     ):
-        fig = pplt.figure()
+        fig = pplt.figure(share="labels")
         if self.inplace:
             ax = fig.subplots(nrows=1, ncols=1)[0]
             self.transformed.plot(ax=ax)
         else:
             axs = fig.subplots(nrows=1, ncols=2)
-            self.transformed.plot(ax=axs[0])
+            self.burst.plot(ax=axs[0])
             self.transformed.plot(ax=axs[1])
         if save:
             fig.savefig(saveto, dpi=dpi)
