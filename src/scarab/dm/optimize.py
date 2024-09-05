@@ -219,6 +219,7 @@ class DMOptimizer:
     def plotdmt(self):
         fig = pplt.figure(width=5)
         ax = fig.subplots(nrows=1, ncols=1)[0]
+
         ax.imshow(
             self.dmt,
             aspect="auto",
@@ -226,10 +227,17 @@ class DMOptimizer:
             origin="lower",
             interpolation="none",
             extent=[
-                0.0,
-                self.burst.tobs,
-                self.burst.dm - 5,
-                self.burst.dm + 5,
+                self.burst.times[0],
+                self.burst.times[-1],
+                self.ddmmin,
+                self.ddmmax,
             ],
         )
+
+        ax.format(
+            xlabel="Time (ms)",
+            ylabel=r"$\Delta$DM (pc cm$^{-3}$)",
+            suptitle=f"DMT for {self.burst.path.name}",
+        )
+
         pplt.show()

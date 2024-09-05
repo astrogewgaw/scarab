@@ -8,7 +8,7 @@ from scarab.dm.base import (
 )
 
 from scarab.dm.fdmt import fdmt
-from scarab.dm.optim import DMOptimizer
+from scarab.dm.optimize import DMOptimizer
 
 __all__ = [
     "kdm",
