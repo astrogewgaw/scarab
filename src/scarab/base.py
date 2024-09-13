@@ -6,21 +6,6 @@ import numpy as np
 import proplot as pplt
 from priwo import readfil
 
-# TODO: Flux esitmation via gmrtetc.
-
-# TODO: Add routines for periodicity searches via:
-#       * Folding?
-#       * Lomb-Scargle periodogram,
-#       * Pearson chi square method,
-#       * Weighted wavelet transform,
-#       * Information theory approaches (P4J; https://doi.org/10.3847/1538-4365/aab77c),
-# and others. Take inspiration from frbpa (https://github.com/KshitijAggarwal/frbpa).
-
-# TODO: Add code to estimate drift rate, via:
-#           * dfdt (https://github.com/zpleunis/dfdt),
-#           * subdriftlaw (https://github.com/mef51/subdriftlaw),
-# or others.
-
 
 @dataclass
 class Burst:
@@ -114,18 +99,25 @@ class Burst:
         dpi: int = 96,
         show: bool = True,
         save: bool = False,
+        withprof: bool = True,
+        withspec: bool = True,
         ax: pplt.Axes | None = None,
         saveto: str | Path = "burst.png",
     ):
-        def _(ax: pplt.Axes) -> None:
-            paneltop = ax.panel_axes("top", width="5em", space=0)
-            panelside = ax.panel_axes("right", width="5em", space=0)
+        def _(
+            ax: pplt.Axes,
+            withprof: bool = True,
+            withspec: bool = True,
+        ) -> None:
+            if withprof:
+                paneltop = ax.panel_axes("top", width="5em", space=0)
+                paneltop.set_yticks([])
+                paneltop.plot(self.times, self.normprofile)
 
-            paneltop.set_yticks([])
-            panelside.set_xticks([])
-
-            paneltop.plot(self.times, self.normprofile)
-            panelside.plot(self.freqs, self.normspectrum, orientation="horizontal")
+            if withspec:
+                panelside = ax.panel_axes("right", width="5em", space=0)
+                panelside.set_xticks([])
+                panelside.plot(self.freqs, self.normspectrum, orientation="horizontal")
 
             ax.imshow(
                 self.data,
@@ -140,16 +132,20 @@ class Burst:
                 ],
             )
 
-            ax.format(xlabel="Time (ms)", ylabel="Frequency (MHz)")
+            ax.format(
+                xlabel="Time (ms)",
+                ylabel="Frequency (MHz)",
+                suptitle=f"{self.path.name}",
+            )
 
         if ax is None:
             fig = pplt.figure(width=5, height=5)
             ax = fig.subplots(nrows=1, ncols=1)[0]
             assert ax is not None
-            _(ax)
+            _(ax, withprof=withprof, withspec=withspec)
             if save:
                 fig.savefig(saveto, dpi=dpi)
             if show:
                 pplt.show()
         else:
-            _(ax)
+            _(ax, withprof=withprof, withspec=withspec)

@@ -1,5 +1,6 @@
 import inspect
 from typing import Self
+from pathlib import Path
 from dataclasses import field, dataclass
 
 import numpy as np
@@ -148,6 +149,60 @@ class ProfileFitter:
             multiple=multiple,
         )
 
+    def plot_fit(
+        self,
+        dpi: int = 96,
+        show: bool = True,
+        save: bool = False,
+        ax: pplt.Axes | None = None,
+        saveto: str | Path = "bestfit.png",
+    ):
+        def _(ax: pplt.Axes) -> None:
+            ax.plot(self.burst.times, self.burst.normprofile, lw=1, alpha=0.5)
+            ax.plot(self.burst.times, self.result.best_fit, lw=2)
+
+        if ax is None:
+            fig = pplt.figure(width=5, height=2.5)
+            ax = fig.subplots(nrows=1, ncols=1)[0]
+            assert ax is not None
+            _(ax)
+            if save:
+                fig.savefig(saveto, dpi=dpi)
+            if show:
+                pplt.show()
+        else:
+            _(ax)
+
+    def plot_components(
+        self,
+        dpi: int = 96,
+        show: bool = True,
+        save: bool = False,
+        ax: pplt.Axes | None = None,
+        saveto: str | Path = "components.png",
+    ):
+        def _(ax: pplt.Axes) -> None:
+            components = self.result.eval_components()
+            for name, component in components.items():
+                ax.plot(
+                    lw=2,
+                    label=name,
+                    data=component,
+                    x=self.burst.times,
+                )
+
+        if ax is None:
+            fig = pplt.figure(width=5, height=2.5)
+            ax = fig.subplots(nrows=1, ncols=1)[0]
+            assert ax is not None
+            _(ax)
+            if save:
+                fig.savefig(saveto, dpi=dpi)
+            if show:
+                pplt.show()
+        else:
+            _(ax)
+
 
 @dataclass
 class SpectrumFitter:
@@ -191,20 +246,39 @@ class SpectrumFitter:
 
         return cls(burst=burst, result=result)
 
+    def plot_fit(
+        self,
+        dpi: int = 96,
+        show: bool = True,
+        save: bool = False,
+        ax: pplt.Axes | None = None,
+        saveto: str | Path = "bestfit.png",
+    ):
+        def _(ax: pplt.Axes) -> None:
+            ax.plot(self.burst.times, self.burst.normprofile, lw=1, alpha=0.5)
+            ax.plot(self.burst.times, self.result.best_fit, lw=2)
+
+        if ax is None:
+            fig = pplt.figure(width=5, height=2.5)
+            ax = fig.subplots(nrows=1, ncols=1)[0]
+            assert ax is not None
+            _(ax)
+            if save:
+                fig.savefig(saveto, dpi=dpi)
+            if show:
+                pplt.show()
+        else:
+            _(ax)
+
 
 @dataclass
 class Fitter:
 
     burst: Burst
     multiple: bool
-
-    SM: str
-    PM: str
-    PR: ModelResult
-    SR: ModelResult
-    PF: ProfileFitter
-    SF: SpectrumFitter
+    models: dict[str, str]
     results: dict[str, ModelResult]
+    fitters: dict[str, ProfileFitter | SpectrumFitter]
 
     @classmethod
     def fit(
@@ -213,34 +287,28 @@ class Fitter:
         multiple: bool = False,
         withmodels: tuple[str, str] = ("unscattered", "gaussian"),
     ) -> Self:
-        PM, SM = withmodels
-        SF = SpectrumFitter.fit(burst, SM)
-        PF = ProfileFitter.fit(burst, PM, multiple=multiple)
+        pm, sm = withmodels
+        sf = SpectrumFitter.fit(burst, sm)
+        pf = ProfileFitter.fit(burst, pm, multiple=multiple)
 
-        if (PF.result is not None) and (SF.result is not None):
-            PR = PF.result
-            SR = SF.result
-            results = {"profile": PR, "spectrum": SR}
+        pr = pf.result
+        sr = sf.result
+        if (pr is not None) and (sr is not None):
+            return cls(
+                burst=burst,
+                multiple=multiple,
+                models={"profile": pm, "spectrum": sm},
+                fitters={"profile": pf, "spectrum": sf},
+                results={"profile": pf.result, "spectrum": sf.result},
+            )
         else:
             raise RuntimeError(
                 {
                     (True, True): "Fit failed!",
                     (True, False): "Profile fit failed!",
                     (False, True): "Spectrum fit failed",
-                }[(PF.result is None, SF.result is None)]
+                }[(pf.result is None, sf.result is None)]
             )
-
-        return cls(
-            PM=PM,
-            SM=SM,
-            PF=PF,
-            SF=SF,
-            PR=PR,
-            SR=SR,
-            burst=burst,
-            results=results,
-            multiple=multiple,
-        )
 
     def plot(self):
         fig = pplt.figure(width=5, height=5)
@@ -253,38 +321,12 @@ class Fitter:
         pxside.set_xticks([])
         pxtoptop.set_yticks([])
 
-        pxtoptop.plot(self.burst.times, self.burst.normprofile, lw=1, alpha=0.5)
-        pxtoptop.plot(self.burst.times, self.PR.best_fit, lw=2)
-        for name, component in self.PR.eval_components().items():
-            pxtop.plot(self.burst.times, component, lw=2, label=name)
-
-        pxside.plot(
-            self.burst.freqs,
-            self.burst.normspectrum,
-            orientation="horizontal",
-            lw=1,
-            alpha=0.5,
-        )
-
-        pxside.plot(self.burst.freqs, self.SR.best_fit, orientation="horizontal", lw=2)
-
-        ax.imshow(
-            self.burst.data,
-            aspect="auto",
-            cmap="batlow",
-            interpolation="none",
-            extent=[
-                self.burst.times[0],
-                self.burst.times[-1],
-                self.burst.freqs[-1],
-                self.burst.freqs[0],
-            ],
-        )
-
-        ax.format(
-            xlabel="Time (s)",
-            ylabel="Frequency (MHz)",
-            suptitle=f"Fit for {self.burst.path.name}",
-        )
+        if isinstance(self.fitters["profile"], SpectrumFitter):
+            self.fitters["spectrum"].plot_fit(pxside)
+        if isinstance(self.fitters["profile"], ProfileFitter):
+            self.fitters["profile"].plot_fit(pxtoptop)
+            self.fitters["profile"].plot_components(pxtop)
+        self.burst.plot(ax=ax, withprof=False, withspec=False)
+        ax.format(suptitle=f"Best fit for {self.burst.path.name}")
 
         pplt.show()
