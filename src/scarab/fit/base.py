@@ -410,8 +410,32 @@ class Fitter:
             )
 
     @property
+    def ncomps(self) -> int:
+        if isinstance(self.fitters["profile"], ProfileFitter):
+            return self.fitters["profile"].ncomps
+        else:
+            raise RuntimeError("Something is terribly wrong! Exiting...")
+
+    @property
+    def components(self) -> dict:
+        if isinstance(self.fitters["profile"], ProfileFitter):
+            return self.fitters["profile"].components
+        else:
+            raise RuntimeError("Something is terribly wrong! Exiting...")
+
+    @property
     def postfit(self) -> pd.DataFrame:
-        return pd.concat([fitter.postfit for fitter in self.fitters.values()])
+        return pd.concat(
+            [
+                self.fitters["profile"].postfit,
+                pd.concat(
+                    [self.fitters["spectrum"].postfit] * self.ncomps,
+                    ignore_index=True,
+                ),
+            ],
+            axis=1,
+            join="inner",
+        )
 
     def plotfit(
         self,
@@ -432,11 +456,9 @@ class Fitter:
 
             if isinstance(self.fitters["spectrum"], SpectrumFitter):
                 self.fitters["spectrum"].plotfit(ax=pxside)
-            elif isinstance(self.fitters["profile"], ProfileFitter):
+            if isinstance(self.fitters["profile"], ProfileFitter):
                 self.fitters["profile"].plotfit(ax=pxtoptop)
                 self.fitters["profile"].plotcomps(ax=pxtop)
-            else:
-                raise RuntimeError("Something is extremely wrong! Exiting...")
             self.burst.plot(ax=ax, withprof=False, withspec=False)
 
             ax.format(suptitle=f"Best fit for {self.burst.path.name}")
