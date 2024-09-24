@@ -1,5 +1,9 @@
+try:
+    from typing import Self, Iterable
+except ImportError:
+    from typing_extensions import Self, Iterable
+
 import numpy as np
-from typing import Self, Iterable
 from dataclasses import dataclass
 from collections.abc import MutableSequence
 

@@ -1,18 +1,29 @@
+# TODO: Absorb fitburst (https://github.com/CHIMEFRB/fitburst).
+# This will allow us to fit the entire dynamic spectrum in one
+# go, instead of fitting the profile and spectrum separately.
+
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+
 import inspect
-from typing import Self
 from pathlib import Path
 from dataclasses import field, dataclass
 
 import numpy as np
+import pandas as pd
 import proplot as pplt
 from lmfit import Model
 from rich.progress import track
 from lmfit.model import ModelResult
 from scipy.signal import find_peaks
+from joblib import Parallel, delayed
 from scipy.ndimage import median_filter
 
 from scarab.base import Burst
 from scarab.dm import dm2delay
+from scarab.utilities import w10gauss, w50gauss
 
 from scarab.fit.models import (
     rpl,
@@ -26,12 +37,7 @@ from scarab.fit.models import (
 )
 
 
-# TODO: Absorb fitburst (https://github.com/CHIMEFRB/fitburst).
-# This will allow us to fit the entire dynamic spectrum in one
-# go, instead of fitting the profile and spectrum separately.
-
-
-def peakfind(data: np.ndarray, winsize: int = 10, perthres: float = 0.05) -> list:
+def peakfind(data: np.ndarray, winsize: int = 10, perthres: float = 0.10) -> list:
     smooth = median_filter(data, winsize)
     peaks, _ = find_peaks(smooth, distance=2 * winsize)
     peaks = peaks[smooth[peaks] >= perthres * smooth.max()]
@@ -52,6 +58,7 @@ class ProfileFitter:
         cls,
         burst: Burst,
         withmodel: str,
+        njobs: int = 4,
         multiple: bool = False,
     ) -> Self:
         modelfunc = {
@@ -72,7 +79,7 @@ class ProfileFitter:
 
         if multiple:
             peaks = peakfind(
-                perthres=0.05,
+                perthres=0.10,
                 data=burst.normprofile,
                 winsize=int(250e-6 / burst.dt),
             )
@@ -85,8 +92,7 @@ class ProfileFitter:
             components.append(component)
         models = np.cumsum(components)
 
-        tries = []
-        for M in track(models, description="Trying models..."):
+        def tryfit(M: Model) -> ModelResult:
             nc = len(M.components)
             for i, peak in enumerate(peaks[:nc]):
                 tpeak = burst.times[peak]
@@ -131,25 +137,84 @@ class ProfileFitter:
             for i in range(1, len(peaks[:nc])):
                 params[f"P{i + 1}dc"].expr = "P1dc"
 
-            tries.append(
-                M.fit(
-                    params=params,
-                    x=burst.times,
-                    method="leastsq",
-                    data=burst.normprofile,
-                )
+            return M.fit(
+                params=params,
+                x=burst.times,
+                method="leastsq",
+                data=burst.normprofile,
             )
 
-        result = tries[np.asarray([_.bic for _ in tries]).argmin()]
+        tries: list = list(
+            track(
+                Parallel(
+                    return_as="generator",
+                    n_jobs=njobs if multiple else 1,
+                )(delayed(tryfit)(M) for M in models),
+                total=len(models),
+            )
+        )
 
         return cls(
             burst=burst,
             tries=tries,
-            result=result,
             multiple=multiple,
+            result=tries[np.asarray([_.bic for _ in tries]).argmin()],
         )
 
-    def plot_fit(
+    @property
+    def ncomps(self) -> int:
+        comps = getattr(self.result, "components", None)
+        numcomps = len(comps) if comps is not None else 1
+        return numcomps
+
+    @property
+    def components(self) -> dict:
+        return self.result.eval_components()
+
+    @property
+    def postfit(self) -> pd.DataFrame:
+        allvals = {
+            (suffix := f"P{i + 1}"): {
+                key.replace(suffix, ""): val
+                for key, val in self.result.best_values.items()
+                if key.startswith(suffix)
+            }
+            for i in range(self.ncomps)
+        }
+
+        covar = np.asarray(self.result.covar)
+        allerrs = np.sqrt(np.diag(covar))
+        dcerr = allerrs[-1]
+        allerrs = allerrs[:-1]
+
+        allvalsnerrs = {}
+        for i, (suffix, compvals) in enumerate(allvals.items()):
+            compvalsnerrs = {}
+            for j, key in enumerate(compvals.keys()):
+                compvalsnerrs[key] = compvals[key]
+                if key != "dc":
+                    compvalsnerrs["".join([key, "_err"])] = allerrs[i * self.ncomps + j]
+                else:
+                    compvalsnerrs["".join([key, "_err"])] = dcerr
+            allvalsnerrs[suffix] = compvalsnerrs
+
+        return pd.DataFrame(
+            [
+                {
+                    "t0": float(compvals["center"]),
+                    "t0_err": float(compvals["center_err"]),
+                    "W50": w50gauss(float(compvals["sigma"])),
+                    "W10": w10gauss(float(compvals["sigma"])),
+                    "W50_err": w50gauss(float(compvals["sigma_err"])),
+                    "W10_err": w10gauss(float(compvals["sigma_err"])),
+                    "tau": float(compvals["tau"]),
+                    "tau_err": float(compvals["tau_err"]),
+                }
+                for _, compvals in allvalsnerrs.items()
+            ]
+        )
+
+    def plotfit(
         self,
         dpi: int = 96,
         show: bool = True,
@@ -173,7 +238,7 @@ class ProfileFitter:
         else:
             _(ax)
 
-    def plot_components(
+    def plotcomps(
         self,
         dpi: int = 96,
         show: bool = True,
@@ -182,13 +247,12 @@ class ProfileFitter:
         saveto: str | Path = "components.png",
     ):
         def _(ax: pplt.Axes) -> None:
-            components = self.result.eval_components()
-            for name, component in components.items():
+            for name, component in self.components.items():
                 ax.plot(
+                    self.burst.times,
+                    component,
                     lw=2,
                     label=name,
-                    data=component,
-                    x=self.burst.times,
                 )
 
         if ax is None:
@@ -246,7 +310,29 @@ class SpectrumFitter:
 
         return cls(burst=burst, result=result)
 
-    def plot_fit(
+    @property
+    def postfit(self) -> pd.DataFrame:
+        ferr = self.burst.df
+        femitn = self.burst.freqs[0]
+        femit0 = self.burst.freqs[-1]
+        emitbw = self.burst.freqs[0] - self.burst.freqs[-1]
+        femitmax = float(self.burst.freqs[self.result.best_fit.argmax()])
+        return pd.DataFrame(
+            [
+                {
+                    "femitmax": femitmax,
+                    "femitmax_err": ferr,
+                    "femit0": femit0,
+                    "femit0_err": ferr,
+                    "femitn": femitn,
+                    "femitn_err": ferr,
+                    "emitbw": emitbw,
+                    "emitbw_err": ferr,
+                }
+            ]
+        )
+
+    def plotfit(
         self,
         dpi: int = 96,
         show: bool = True,
@@ -254,21 +340,33 @@ class SpectrumFitter:
         ax: pplt.Axes | None = None,
         saveto: str | Path = "bestfit.png",
     ):
-        def _(ax: pplt.Axes) -> None:
-            ax.plot(self.burst.times, self.burst.normprofile, lw=1, alpha=0.5)
-            ax.plot(self.burst.times, self.result.best_fit, lw=2)
+        def _(ax: pplt.Axes, flip: bool = False) -> None:
+            ax.plot(
+                self.burst.freqs,
+                self.burst.normspectrum,
+                lw=1,
+                alpha=0.5,
+                orientation="horizontal" if flip else "vertical",
+            )
+
+            ax.plot(
+                self.burst.freqs,
+                self.result.best_fit,
+                lw=2,
+                orientation="horizontal" if flip else "vertical",
+            )
 
         if ax is None:
             fig = pplt.figure(width=5, height=2.5)
             ax = fig.subplots(nrows=1, ncols=1)[0]
             assert ax is not None
-            _(ax)
+            _(ax, flip=False)
             if save:
                 fig.savefig(saveto, dpi=dpi)
             if show:
                 pplt.show()
         else:
-            _(ax)
+            _(ax, flip=True)
 
 
 @dataclass
@@ -284,12 +382,13 @@ class Fitter:
     def fit(
         cls,
         burst,
+        njobs: int = 4,
         multiple: bool = False,
         withmodels: tuple[str, str] = ("unscattered", "gaussian"),
     ) -> Self:
         pm, sm = withmodels
         sf = SpectrumFitter.fit(burst, sm)
-        pf = ProfileFitter.fit(burst, pm, multiple=multiple)
+        pf = ProfileFitter.fit(burst, pm, njobs=njobs, multiple=multiple)
 
         pr = pf.result
         sr = sf.result
@@ -310,23 +409,46 @@ class Fitter:
                 }[(pf.result is None, sf.result is None)]
             )
 
-    def plot(self):
-        fig = pplt.figure(width=5, height=5)
-        ax = fig.subplots(nrows=1, ncols=1)[0]
-        pxtop = ax.panel_axes("top", width="5em", space=0)
-        pxtoptop = ax.panel_axes("top", width="5em", space=0)
-        pxside = ax.panel_axes("right", width="5em", space=0)
+    @property
+    def postfit(self) -> pd.DataFrame:
+        return pd.concat([fitter.postfit for fitter in self.fitters.values()])
 
-        pxtop.set_yticks([])
-        pxside.set_xticks([])
-        pxtoptop.set_yticks([])
+    def plotfit(
+        self,
+        dpi: int = 96,
+        show: bool = True,
+        save: bool = False,
+        ax: pplt.Axes | None = None,
+        saveto: str | Path = "bestfit.png",
+    ):
+        def _(ax: pplt.Axes) -> None:
+            pxtop = ax.panel_axes("top", width="5em", space=0)
+            pxtoptop = ax.panel_axes("top", width="5em", space=0)
+            pxside = ax.panel_axes("right", width="5em", space=0)
 
-        if isinstance(self.fitters["profile"], SpectrumFitter):
-            self.fitters["spectrum"].plot_fit(pxside)
-        if isinstance(self.fitters["profile"], ProfileFitter):
-            self.fitters["profile"].plot_fit(pxtoptop)
-            self.fitters["profile"].plot_components(pxtop)
-        self.burst.plot(ax=ax, withprof=False, withspec=False)
-        ax.format(suptitle=f"Best fit for {self.burst.path.name}")
+            pxtop.set_yticks([])
+            pxside.set_xticks([])
+            pxtoptop.set_yticks([])
 
-        pplt.show()
+            if isinstance(self.fitters["spectrum"], SpectrumFitter):
+                self.fitters["spectrum"].plotfit(ax=pxside)
+            elif isinstance(self.fitters["profile"], ProfileFitter):
+                self.fitters["profile"].plotfit(ax=pxtoptop)
+                self.fitters["profile"].plotcomps(ax=pxtop)
+            else:
+                raise RuntimeError("Something is extremely wrong! Exiting...")
+            self.burst.plot(ax=ax, withprof=False, withspec=False)
+
+            ax.format(suptitle=f"Best fit for {self.burst.path.name}")
+
+        if ax is None:
+            fig = pplt.figure(width=5, height=5)
+            ax = fig.subplots(nrows=1, ncols=1)[0]
+            assert ax is not None
+            _(ax)
+            if save:
+                fig.savefig(saveto, dpi=dpi)
+            if show:
+                pplt.show()
+        else:
+            _(ax)

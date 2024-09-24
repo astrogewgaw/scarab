@@ -1,0 +1,17 @@
+dist
+build
+.egg
+.nvim
+.vscode
+.coverage
+__pycache__
+.mypy_cache
+.pytest_cache
+.ipynb_checkpoints
+src/scarab/_version.py
+
+*.o
+*.so
+*.egg
+*.py[cod]
+*.egg-info

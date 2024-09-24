@@ -1,4 +1,8 @@
-from typing import Self
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
+
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -406,6 +410,7 @@ class DMOptimizer:
                 ax.imshow(
                     self.detrended,
                     aspect="auto",
+                    cmap="batlow",
                     extent=[
                         0.0,
                         tobs,
@@ -450,6 +455,7 @@ class DMOptimizer:
                 ax.imshow(
                     self.relative_detrended,
                     aspect="auto",
+                    cmap="batlow",
                     extent=[
                         0.0,
                         tobs,
