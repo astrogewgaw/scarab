@@ -17,12 +17,11 @@ import proplot as pplt
 from lmfit import Model
 from rich.progress import track
 from lmfit.model import ModelResult
-from scipy.signal import find_peaks
 from joblib import Parallel, delayed
-from scipy.ndimage import median_filter
 
 from scarab.base import Burst
 from scarab.dm import dm2delay
+from scarab.peaks import PeakFinder
 from scarab.utilities import w10gauss, w50gauss
 
 from scarab.fit.models import (
@@ -35,14 +34,6 @@ from scarab.fit.models import (
     scatgauss_afb_instrumental,
     scatgauss_dfb_instrumental,
 )
-
-
-def peakfind(data: np.ndarray, winsize: int = 10, perthres: float = 0.10) -> list:
-    smooth = median_filter(data, winsize)
-    peaks, _ = find_peaks(smooth, distance=2 * winsize)
-    peaks = peaks[smooth[peaks] >= perthres * smooth.max()]
-    peaks = list(reversed([peak for _, peak in sorted(zip(smooth[peaks], peaks))]))
-    return peaks
 
 
 @dataclass
@@ -78,11 +69,11 @@ class ProfileFitter:
         tmin = burst.times[0]
 
         if multiple:
-            peaks = peakfind(
-                perthres=0.10,
-                data=burst.normprofile,
-                winsize=int(250e-6 / burst.dt),
-            )
+            peaks = PeakFinder.find(
+                burst.normprofile,
+                threshold=0.1,
+                window=int(250e-6 / burst.dt),
+            ).peaks
         else:
             peaks = [ixmax]
 
