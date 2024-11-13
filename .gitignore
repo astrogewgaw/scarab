@@ -1,11 +1,12 @@
 dist
 build
 .egg
-.nvim
+.nox
 .vscode
 .coverage
 __pycache__
 .mypy_cache
+docs/_build
 .pytest_cache
 .ipynb_checkpoints
 src/scarab/_version.py
