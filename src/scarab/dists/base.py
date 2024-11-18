@@ -16,7 +16,6 @@ from scarab.dists.models import MODELS
 @dataclass
 class Distribution:
     table: pd.DataFrame
-    alpha: float = 0.05
     tries: pd.DataFrame | None = None
 
     @classmethod
@@ -26,9 +25,10 @@ class Distribution:
     def fit(
         self,
         field: str,
-        ntop: int = 10,
         njobs: int = 1,
         nboots: int = 100,
+        alpha: float = 0.05,
+        ntop: int | None = None,
         dist: str | list = "all",
         **kwargs,
     ) -> None:
@@ -55,7 +55,7 @@ class Distribution:
         self.data = data
         self.bins = edges
         self.counts = counts
-        self.binned = (edges, counts)
+        self.histogram = (edges, counts)
 
         match dist:
             case "all":
@@ -98,8 +98,9 @@ class Distribution:
                     scale = params[-1]
                     args = params[:-2]
 
+                    scorestat = kwargs.get("scorestat", "RSS")
                     ypdf = distribution.pdf(edges, loc=loc, scale=scale, *args)
-                    match kwargs.get("scorestat", "RSS"):
+                    match scorestat:
                         case "energy":
                             score = st.energy_distance(counts, ypdf)
                         case "ks" | "KS":
@@ -127,7 +128,7 @@ class Distribution:
                         Dns = Parallel(n_jobs=njobs)(
                             delayed(bootiter)(i) for i in range(nboots)
                         )
-                        Dn_alpha = np.quantile(Dns, 1 - self.alpha)  # type: ignore
+                        Dn_alpha = np.quantile(Dns, 1 - alpha)  # type: ignore
                         bootpass = False if Dn[0] > Dn_alpha else True
                         bootscore = np.sum(Dns > Dn[0]) / nboots
                     except Exception:
@@ -137,37 +138,53 @@ class Distribution:
 
                 return {
                     "name": name,
-                    "score": score,
                     "loc": loc,
-                    "scale": scale,
                     "args": args,
+                    "scale": scale,
+                    "score": score,
                     "fitted": fitted,
                     "fittime": elapsed,
                     "bootpass": bootpass,
                     "bootscore": bootscore,
+                    "scorestat": scorestat,
                 }
             except Exception:
                 pass
 
-        self.tries = pd.DataFrame(
-            [
-                _
-                for _ in list(
-                    track(
-                        Parallel(n_jobs=njobs, return_as="generator")(
-                            delayed(tryfit)(distribution)
-                            for distribution in distributions
-                        ),
-                        total=len(distributions),
-                    )
+        tries = [
+            _
+            for _ in list(
+                track(
+                    Parallel(n_jobs=njobs, return_as="generator")(
+                        delayed(tryfit)(distribution) for distribution in distributions
+                    ),
+                    total=len(distributions),
                 )
-                if _ is not None
-            ][:ntop]
-        )
-        self.tries.sort_values(
+            )
+            if _ is not None
+        ]
+        tries = pd.DataFrame(tries[:ntop] if ntop is not None else tries)
+        tries.sort_values(
             inplace=True,
             ascending=[False, True, True],
             by=["bootscore", "score", "bootpass"],
         )
-        self.tries.reset_index(drop=True, inplace=True)
-        self.bestmodel = self.tries.iloc[0, :].to_dict()
+        tries.reset_index(drop=True, inplace=True)
+
+        self.tries = tries
+        self.bestfit = self.tries.iloc[0, :].to_dict()
+        self.bestmodel = self.bestfit["model"]
+
+        try:
+            ciiup = self.bestmodel.ppf(alpha)
+        except ValueError:
+            ciiup = np.max(self.counts)
+
+        try:
+            ciidown = self.bestmodel.ppf(1 - alpha)
+        except ValueError:
+            ciidown = np.min(self.counts)
+
+        self.bestmodel["alpha"] = alpha
+        self.bestmodel["ciiup"] = ciiup
+        self.bestmodel["ciidown"] = ciidown
