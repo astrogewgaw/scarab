@@ -1,8 +1,3 @@
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 from pathlib import Path
 from dataclasses import asdict, dataclass
 
@@ -27,7 +22,7 @@ class Transformer:
     def new(cls, burst: Burst, inplace: bool = False):
         return cls(burst=burst, transformed=burst, inplace=inplace)
 
-    def normalise(self) -> Self:
+    def normalise(self):
         data = self.transformed.data
         data = data if self.inplace else data.copy()
         normalised = normalise(data)
@@ -41,7 +36,7 @@ class Transformer:
         self.istransformed = True
         return type(self).new(burst=self.transformed, inplace=self.inplace)
 
-    def dedisperse(self, dm: float) -> Self:
+    def dedisperse(self, dm: float):
         data = self.transformed.data
         data = data if self.inplace else data.copy()
         shifts = dm2shifts(self.transformed.freqs, self.transformed.dt, dm)
@@ -65,7 +60,7 @@ class Transformer:
         self.istransformed = True
         return type(self).new(burst=self.transformed, inplace=self.inplace)
 
-    def scrunch(self, tf: int = 1, ff: int = 1) -> Self:
+    def scrunch(self, tf: int = 1, ff: int = 1):
         data = self.transformed.data
         data = data if self.inplace else data.copy()
         scrunched = scrunch(data, tf, ff)
@@ -91,7 +86,7 @@ class Transformer:
         self.istransformed = True
         return type(self).new(burst=self.transformed, inplace=self.inplace)
 
-    def clip(self, within: float = 50e-3) -> Self:
+    def clip(self, within: float = 50e-3):
         n0 = int(self.transformed.nt // 2)
         dn = int(within / self.transformed.dt)
         data = self.transformed.data
@@ -103,23 +98,26 @@ class Transformer:
         n0 = n0 - dn + m
 
         clipped = self.transformed.data[:, n0 - dn : n0 + dn]
+        offset = float((n0 - dn) * self.transformed.dt)
         _, nt = clipped.shape
 
         if self.inplace:
             self.transformed.nt = nt
             self.transformed.data = clipped
             self.transformed.tobs = self.transformed.nt * self.transformed.dt
+            self.transformed.mjd = self.transformed.mjd + (offset / (24 * 60 * 60))
             self.transformed = self.transformed
         else:
             attrs = asdict(self.transformed)
             attrs["nt"] = nt
             attrs["data"] = clipped
             attrs["tobs"] = nt * self.transformed.dt
+            attrs["mjd"] = attrs["mjd"] + (offset / (24 * 60 * 60))
             self.transformed = Burst(**attrs)
         self.istransformed = True
         return type(self).new(burst=self.transformed, inplace=self.inplace)
 
-    def mask(self, boxwidth: int = 10, snrthres: float = 10.0) -> Self:
+    def mask(self, boxwidth: int = 10, snrthres: float = 10.0):
         data = self.transformed.data
         freqs = self.transformed.freqs
         mask = self.transformed.spectrum > 0.0

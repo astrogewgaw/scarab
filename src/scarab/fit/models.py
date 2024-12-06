@@ -12,7 +12,10 @@ def linear(
     return m * (x - x0) + c
 
 
-def boxcar(x: np.ndarray, width: float) -> np.ndarray:
+def boxcar(
+    x: np.ndarray,
+    width: float,
+) -> np.ndarray:
     y = np.zeros_like(x)
     y[np.abs(x) <= 0.5 * width] = 1.0
     return y

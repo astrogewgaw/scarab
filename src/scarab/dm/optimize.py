@@ -1,8 +1,3 @@
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 from pathlib import Path
 from dataclasses import dataclass
 
@@ -63,7 +58,7 @@ class DMOptimizer:
         burst: Burst,
         ddmmin: float = -5,
         ddmmax: float = +5,
-    ) -> Self:
+    ):
         zeroed = dedisperse(
             dt=burst.dt,
             dm=-burst.dm,

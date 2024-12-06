@@ -1,8 +1,3 @@
-try:
-    from typing import Self, Iterable
-except ImportError:
-    from typing_extensions import Self, Iterable
-
 import numpy as np
 from dataclasses import dataclass
 from collections.abc import MutableSequence
@@ -24,7 +19,7 @@ class Template:
         self.data = self.data * ((self.data**2).sum()) ** -0.5
 
     @classmethod
-    def boxcar(cls, wbin: int) -> Self:
+    def boxcar(cls, wbin: int):
         template = cls(
             ref=0,
             wbin=wbin,
@@ -36,7 +31,7 @@ class Template:
         return template
 
     @classmethod
-    def gaussian(cls, wbin: int) -> Self:
+    def gaussian(cls, wbin: int):
         sigma = wbin / (2 * np.sqrt(2 * np.log(2)))
         xmax = int(np.ceil(3.5 * sigma))
         x = np.arange(-xmax, xmax + 1)
@@ -89,11 +84,11 @@ class TemplateBank(MutableSequence):
         self.templates.insert(index, value)
 
     @classmethod
-    def boxcars(cls, wbins: Iterable) -> Self:
+    def boxcars(cls, wbins):
         return cls(templates=[Template.boxcar(wbin) for wbin in sorted(wbins)])
 
     @classmethod
-    def gaussians(cls, wbins: Iterable) -> Self:
+    def gaussians(cls, wbins):
         return cls(templates=[Template.gaussian(wbin) for wbin in sorted(wbins)])
 
     def prepare(self, nbins: int) -> np.ndarray:

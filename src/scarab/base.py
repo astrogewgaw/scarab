@@ -1,10 +1,6 @@
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 from pathlib import Path
 from dataclasses import dataclass
+from collections.abc import MutableSequence
 
 import numpy as np
 import proplot as pplt
@@ -28,9 +24,10 @@ class Burst:
     data: np.ndarray
 
     @classmethod
-    def new(cls, fn: str) -> Self:
+    def new(cls, fn: str):
         meta, data = readfil(fn)
 
+        data = np.asarray(data)
         _, nt = data.shape
         fh = meta["fch1"]
         dt = meta["tsamp"]
@@ -98,6 +95,12 @@ class Burst:
         normspectrum = normspectrum / normspectrum.std()
         return normspectrum
 
+    def plotprofile(self):
+        pass
+
+    def plotspectrum(self):
+        pass
+
     def plot(
         self,
         dpi: int = 96,
@@ -153,3 +156,23 @@ class Burst:
                 pplt.show()
         else:
             _(ax, withprof=withprof, withspec=withspec)
+
+
+@dataclass
+class Bursts(MutableSequence):
+    bursts: list[Burst]
+
+    def __len__(self):
+        return len(self.bursts)
+
+    def __getitem__(self, i):
+        return self.bursts[i]
+
+    def __delitem__(self, i):
+        del self.bursts[i]
+
+    def __setitem__(self, i, value):
+        self.bursts[i] = value
+
+    def insert(self, index, value: Burst):
+        self.bursts.insert(index, value)

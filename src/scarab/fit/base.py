@@ -1,12 +1,3 @@
-# TODO: Absorb fitburst (https://github.com/CHIMEFRB/fitburst).
-# This will allow us to fit the entire dynamic spectrum in one
-# go, instead of fitting the profile and spectrum separately.
-
-try:
-    from typing import Self
-except ImportError:
-    from typing_extensions import Self
-
 import inspect
 from pathlib import Path
 from dataclasses import field, dataclass
@@ -19,9 +10,9 @@ from rich.progress import track
 from lmfit.model import ModelResult
 from joblib import Parallel, delayed
 
-from scarab.base import Burst
 from scarab.dm import dm2delay
 from scarab.peaks import PeakFinder
+from scarab.base import Burst, Bursts
 from scarab.utilities import w10gauss, w50gauss
 
 from scarab.fit.models import (
@@ -34,6 +25,16 @@ from scarab.fit.models import (
     scatgauss_afb_instrumental,
     scatgauss_dfb_instrumental,
 )
+
+
+@dataclass
+class FittedBurst(Burst):
+    pass
+
+
+@dataclass
+class FittedBursts(Bursts):
+    pass
 
 
 @dataclass
@@ -51,7 +52,8 @@ class ProfileFitter:
         withmodel: str,
         njobs: int = 4,
         multiple: bool = False,
-    ) -> Self:
+        **kwargs,
+    ):
         modelfunc = {
             "unscattered": normgauss,
             "scattering_isotropic_analytic": scatanalytic,
@@ -69,11 +71,7 @@ class ProfileFitter:
         tmin = burst.times[0]
 
         if multiple:
-            peaks = PeakFinder.find(
-                burst.normprofile,
-                threshold=0.1,
-                window=int(250e-6 / burst.dt),
-            ).peaks
+            peaks = PeakFinder.find(burst.normprofile, **kwargs).peaks
         else:
             peaks = [ixmax]
 
@@ -266,7 +264,7 @@ class SpectrumFitter:
     result: ModelResult
 
     @classmethod
-    def fit(cls, burst: Burst, withmodel: str) -> Self:
+    def fit(cls, burst: Burst, withmodel: str):
         modelfunc = {
             "gaussian": gauss,
             "running_power_law": rpl,
@@ -376,10 +374,12 @@ class Fitter:
         njobs: int = 4,
         multiple: bool = False,
         withmodels: tuple[str, str] = ("unscattered", "gaussian"),
-    ) -> Self:
+        **kwargs,
+    ):
         pm, sm = withmodels
+
         sf = SpectrumFitter.fit(burst, sm)
-        pf = ProfileFitter.fit(burst, pm, njobs=njobs, multiple=multiple)
+        pf = ProfileFitter.fit(burst, pm, njobs=njobs, multiple=multiple, **kwargs)
 
         pr = pf.result
         sr = sf.result

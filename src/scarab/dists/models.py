@@ -1,5 +1,6 @@
 import scipy.stats as st
 
+
 MODELS = {
     "alpha": st.alpha,
     "anglit": st.anglit,
@@ -82,3 +83,23 @@ MODELS = {
     "weibull_max": st.weibull_max,
     "wrapcauchy": st.wrapcauchy,
 }
+
+POPULARMODELS = {
+    name: MODELS[name]
+    for name in [
+        "norm",
+        "expon",
+        "pareto",
+        "dweibull",
+        "t",
+        "genextreme",
+        "gamma",
+        "lognorm",
+        "beta",
+        "uniform",
+        "loggamma",
+    ]
+}
+
+ENERGYMODELS: dict = {}
+WAITINGMODELS: dict = {}

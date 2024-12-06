@@ -10,7 +10,12 @@ from rich.progress import track
 from joblib import Parallel, delayed
 
 from scarab.utilities import smoothen
-from scarab.dists.models import MODELS
+from scarab.dists.models import (
+    MODELS,
+    ENERGYMODELS,
+    WAITINGMODELS,
+    POPULARMODELS,
+)
 
 
 @dataclass
@@ -21,6 +26,10 @@ class Distribution:
     @classmethod
     def from_csv(cls, fn: str | Path):
         return cls(table=pd.read_csv(fn))
+
+    @classmethod
+    def from_bursts(cls):
+        pass
 
     def fit(
         self,
@@ -60,40 +69,27 @@ class Distribution:
         match dist:
             case "all":
                 distributions = MODELS
+            case "energy":
+                distributions = ENERGYMODELS
+            case "waiting":
+                distributions = WAITINGMODELS
             case "popular":
-                distributions = [
-                    MODELS[name]
-                    for name in [
-                        "norm",
-                        "expon",
-                        "pareto",
-                        "dweibull",
-                        "t",
-                        "genextreme",
-                        "gamma",
-                        "lognorm",
-                        "beta",
-                        "uniform",
-                        "loggamma",
-                    ]
-                ]
+                distributions = POPULARMODELS
             case _:
                 distributions = (
-                    [MODELS[name] for name in dist]
+                    {name: MODELS[name] for name in dist}
                     if isinstance(dist, list)
-                    else [MODELS[dist]]
+                    else {dist: MODELS[dist]}
                 )
         self.distributions = distributions
 
-        def tryfit(distribution) -> dict | None:
+        def tryfit(name, distribution) -> dict | None:
             try:
                 tic = time.time()
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
 
-                    name = distribution.name
                     params = distribution.fit(data)
-
                     loc = params[-2]
                     scale = params[-1]
                     args = params[:-2]
@@ -156,7 +152,8 @@ class Distribution:
             for _ in list(
                 track(
                     Parallel(n_jobs=njobs, return_as="generator")(
-                        delayed(tryfit)(distribution) for distribution in distributions
+                        delayed(tryfit)(name, distribution)
+                        for name, distribution in distributions.items()
                     ),
                     total=len(distributions),
                 )
@@ -171,20 +168,43 @@ class Distribution:
         )
         tries.reset_index(drop=True, inplace=True)
 
-        self.tries = tries
-        self.bestfit = self.tries.iloc[0, :].to_dict()
-        self.bestmodel = self.bestfit["model"]
+        if len(tries) > 0:
+            self.tries = tries
+            self.bestfit = self.tries.iloc[0, :].to_dict()
 
-        try:
-            ciiup = self.bestmodel.ppf(alpha)
-        except ValueError:
-            ciiup = np.max(self.counts)
+            loc = self.bestfit["loc"]
+            name = self.bestfit["name"]
+            args = self.bestfit["args"]
+            scale = self.bestfit["scale"]
+            model = self.distributions[name](*args, loc, scale)
 
-        try:
-            ciidown = self.bestmodel.ppf(1 - alpha)
-        except ValueError:
-            ciidown = np.min(self.counts)
+            self.bestmodel = self.bestfit["model"] = model
 
-        self.bestmodel["alpha"] = alpha
-        self.bestmodel["ciiup"] = ciiup
-        self.bestmodel["ciidown"] = ciidown
+            try:
+                ciiup = self.bestmodel.ppf(alpha)
+            except ValueError:
+                ciiup = np.max(self.counts)
+
+            try:
+                ciidown = self.bestmodel.ppf(1 - alpha)
+            except ValueError:
+                ciidown = np.min(self.counts)
+
+            self.bestfit["alpha"] = alpha
+            self.bestfit["ciiup"] = ciiup
+            self.bestfit["ciidown"] = ciidown
+        else:
+            self.tries = None
+            self.bestfit = None
+            self.bestmodel = None
+
+        match dist:
+            case "energy":
+                pass
+            case "waiting":
+                pass
+            case _:
+                pass
+
+    def plot(self):
+        pass
