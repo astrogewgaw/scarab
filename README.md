@@ -13,10 +13,12 @@
 
 <br/>
 
-[**`scarab`**][scarab] stands for **<u>S</u>POTLIGHT's <u>C</u>ollection of <u>A</u>nalytic machine<u>R</u>y for <u>A</u>rbitrary <u>B</u>ursts**. This is a collection of common functionality will be used to process and analyse pulsar and FRB data obtained via the [**SPOTLIGHT**][spotlight] project.
+[**`scarab`**][scarab] stands for **<u>S</u>POTLIGHT's <u>C</u>ollection of <u>A</u>nalytic machine<u>R</u>y for <u>A</u>rbitrary <u>B</u>ursts**. This package is toolkit for analysing bursts from FRBs and pulsars detected from the [**SPOTLIGHT**][spotlight] project. The [**SPOTLIGHT**][spotlight] project is a multibeam, commensal survey for FRBs and pulsars soon to be undertaken at the [**GMRT**][gmrt]. Detailed documentation for the package is available at [**`https://astrogewgaw.github.io/scarab`**](https://astrogewgaw.github.io/scarab).
+
 
 </div>
 </div>
 
+[gmrt]: http://www.gmrt.ncra.tifr.res.in
 [scarab]: https://github.com/astrogewgaw/scarab
 [spotlight]: https://spotlight.ncra.tifr.res.in

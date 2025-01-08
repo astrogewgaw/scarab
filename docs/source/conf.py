@@ -1,7 +1,7 @@
 project = "scarab"
 html_theme = "furo"
-master_doc = "index"
 author = "Ujjwal Panda"
+master_doc = "contents"
 exclude_patterns = [""]
 copyright = "2021-2022, Ujjwal Panda"
 html_baseurl = "https://scarab.readthedocs.io"
